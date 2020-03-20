@@ -6,20 +6,22 @@ Created on : 2020/2/19 13:05
 @Author : jz liu
 """
 
+import numpy as np
+import pandas as pd
+import datetime
+
+from sklearn.linear_model import LinearRegression
+from scipy.interpolate import Rbf
 from pyhdf.SD import SD,SDC
 from osgeo import gdal
 from os import listdir, path
-import numpy as np
-from scipy.interpolate import Rbf
 from osgeo import osr
-import pandas as pd
-import datetime
+
 
 class download:
 #  some functions for downloading and collecting
     def __init__(self):
         pass
-
 
 class process:
 #  some functions like Projection transformation,etc
@@ -318,6 +320,31 @@ class interpolation:
 
             return np.mat(xTx)
 
+    def countLWR(self,y,testPoint,weights,xArr):
+        #具体计算lwr结果，在lwr函数内部使用
+
+        y = y.tolist()
+        if y[testPoint[1] - 1] != self.filv:  # 判断是否需要插值
+            ws1 = y[testPoint[1] - 1]
+        else:
+            num = self.Effective(y)
+            if len(num) < 2 or len(num) == 2 and abs(y[num[0]]-y[num[1]]) > 10:  # 判断是否可以插值
+                ws1 = y[testPoint[1] - 1]
+            else:# 如果符合两个条件
+
+                weight = self.lwrFilter('X', y, num=num, weights=weights)
+                xmat = self.countXTX(True, num=num, X=xArr)
+                xTx1 = self.countXTX(False, Xmat=xmat, weight=weight)
+                if np.linalg.det(xTx1) == 0.0:
+                    print("This matrix is singular, cannot do inverse")
+                    ws1 = y[testPoint[1] - 1]
+                else:
+
+                    ws1 = xTx1.I * (xmat.T * (weight * self.lwrFilter('Y', y).T))
+                    ws1 = int(testPoint * ws1)
+
+        return ws1
+
     def lwr(self,testPoint,xArr,yArr,k=1.0):
         '''
         lwr核心计算函数，为了可视化方便，均以【1，】形式输入
@@ -329,46 +356,29 @@ class interpolation:
         '''
         xMat = np.mat(xArr); yMat = np.array(yArr).T
         m = np.shape(xMat)[0]
+
         weights = []
         for j in range(m):                      #next 2 lines create weights matrix
             diffMat = testPoint - xMat[j,:]   #difference matrix
             weights.append(np.exp(diffMat*diffMat.T/(-2.0*k**2)))#weighted matrix
-        ws=[]
-        for array in yMat:
-            for y in array:
-                y = y.tolist()
-                if y[testPoint[1]-1] != self.filv:      #判断是否需要插值
-                    ws1 = y[testPoint[1]-1]
-                else:
-                    num = self.Effective(y)
-                    if len(num) < 2 :    #判断是否可以插值
-                        ws1 = y[testPoint[1]-1]
-                    else:                                #如果符合两个条件
-                        weight=self.lwrFilter('X',y,num=num,weights=weights)
-                        xmat=self.countXTX(True,num=num,X=xArr)
-                        xTx1=self.countXTX(False,Xmat=xmat,weight=weight)
-                        if np.linalg.det(xTx1) == 0.0:
-                            print("This matrix is singular, cannot do inverse")
-                            ws1 = y[testPoint[1]-1]
-                        else:
 
-                            ws1 = xTx1.I * (xmat.T * (weight * self.lwrFilter('Y',y).T))
-                            ws1 = int(testPoint * ws1)
-
-
-                ws.append(ws1)
+        ws = [self.countLWR(y,testPoint,weights,xArr) for array in yMat for y in array]
 
         return ws
 
     def getTrainingPoint(self,data):
         #data为转置后的五项数据，只在TPS函数内部使用
+
         avail_point=[]
+
         for value in data:
             for y in value:
                 if y[0] != self.filv:
                     if y[1] != self.filv:
                         avail_point.append(y)
+
         TrPoint = []
+
         for i in range(500):
             num = int(len(avail_point)/500)*i
             TrPoint.append(avail_point[num])
@@ -378,55 +388,117 @@ class interpolation:
 
         return TrPoint
 
-    def TPS(self,LST_Data,BAND31_Data,ELE_Data,LON_Data,Lat_Data,Filter):
+    def linear(self,trainpoint):
+        '''
+        计算协因数系数
+        :param trainpoint:
+                            训练点
+        :return:
+                a：高程系数
+                b：发射率系数
+        '''
+        reg = LinearRegression()
+
+        c = np.array(trainpoint[1]).flatten()
+        d = np.array(trainpoint[2]).flatten()
+
+        X = np.column_stack((c,d))
+        Y = np.array(trainpoint[0]).reshape(-1,1)
+
+        reg.fit(X,Y)
+
+        tem = reg.coef_.flatten()
+        a = tem[0]
+        b = tem[1]
+
+        return a,b
+
+    def TPS(self,LST_Data,BAND31_Data,ELE_Data,Lon_Data,Lat_Data,Filter):
         '''
         进行TPS插值
         :param LST_Data: LST数据
         :param BAND31_Data: 波段31数据
         :param ELE_Data: 高程数据
-        :param LON_Data: 经度数据（投影坐标系，单位：米）
+        :param Lon_Data: 经度数据（投影坐标系，单位：米）
         :param Lat_Data: 纬度数据（投影坐标系，单位：米）
         :param Filter:
                         True：按照阈值过滤结果
                         Flase:不过滤结果
         :return: TPS后的LST数据
         '''
+
         data=[]
         data.append(LST_Data)
-        data.append(BAND31_Data)
         data.append(ELE_Data)
-        data.append(LON_Data)
+        data.append(BAND31_Data)
+        data.append(Lon_Data)
         data.append(Lat_Data)
         data = np.array(data).T
         data = data.tolist()
+
         trainPoint = self.getTrainingPoint(data)
-        rbfi = Rbf(trainPoint[1], trainPoint[2], trainPoint[3], trainPoint[4], trainPoint[0], function="thin_plate")
+        a,b = self.linear(trainPoint)
+        print(a,b)
+
+        ELE = np.array(trainPoint[1])
+        BAND31 = np.array(trainPoint[2])
+        LST = np.array(trainPoint[0])
+        LST_tem = LST - a*ELE - b*BAND31
+
+        rbfi = Rbf(trainPoint[3], trainPoint[4],LST_tem, function="thin_plate")
+
+
         if Filter == True:
-            max,min = self.QAcount(LST_Data)
+            max, min = self.QAcount(LST_Data)
             data = []
+
             for i in range(1200):
+
                 for k in range(1200):
-                    if LST_Data[i][k] != self.filv: #是否需要插值
+
+                    if LST_Data[i][k] != self.filv:  # 是否需要插值
+
                         data.append(LST_Data[i][k])
-                    elif BAND31_Data[i][k] == self.filv:  #是否可以插值
+
+                    elif BAND31_Data[i][k] == self.filv:  # 是否可以插值
+
                         data.append(self.filv)
-                    else: #满足两个条件
-                        value = rbfi(BAND31_Data[i][k],ELE_Data[i][k],LON_Data[i][k],Lat_Data[i][k])
+
+                    else:  # 满足两个条件
+
+                        value = rbfi(Lon_Data[i][k], Lat_Data[i][k])
+                        value = value + a*ELE_Data[i][k] + b*BAND31_Data[i][k]
+
                         if value > max or value < min:
                             value = self.filv
+
                         data.append(value)
+
+
         elif Filter == False:
             data = []
+
             for i in range(1200):
+
                 for k in range(1200):
+
                     if LST_Data[i][k] != self.filv:  # 是否需要插值
+
                         data.append(LST_Data[i][k])
+
                     elif BAND31_Data[i][k] == self.filv:  # 是否可以插值
+
                         data.append(self.filv)
+
                     else:  # 满足两个条件
-                        value = rbfi(BAND31_Data[i][k], ELE_Data[i][k], LON_Data[i][k], Lat_Data[i][k])
+
+                        value = rbfi(Lon_Data[i][k], Lat_Data[i][k])
+                        value = value + a * ELE_Data[i][k] + b * BAND31_Data[i][k]
+
                         data.append(value)
-        data = np.array(data).reshape(1200,1200).tolist()
+
+        data = np.array(data).reshape(1200, 1200).tolist()
+
 
         return data
 
@@ -436,7 +508,7 @@ class interpolation:
         :param LST_data: LST数据
         :return: Filter的上下限
         '''
-        LST_data = [y for i in LST_data for y in i if i != self.filv]
+        LST_data = [y for i in LST_data for y in i if y != self.filv]
 
         Q1 = int(len(LST_data) // 4)
         Q2 = int(len(LST_data) // 4 * 3)
@@ -445,7 +517,6 @@ class interpolation:
         Qmin = LST_data[Q1 - 1] + 1.5 * (LST_data[Q1 - 1] - LST_data[Q2 - 1])
 
         return Qmax,Qmin
-
 
 class data_show:
 #  some functions for organizing and showing the data
@@ -467,9 +538,11 @@ class data_show:
         '''
         Flag = [[0]*1200]*1200
         Flag = np.array(Flag)
+
         TPS_data = np.array(TPS_data)
         LWR_data = np.array(LWR_data)
         ORI_data = np.array(ORI_data)
+
         Flag[TPS_data != self.filv ] = 3
         Flag[LWR_data != self.filv ] = 2
         Flag[ORI_data != self.filv ] = 1
