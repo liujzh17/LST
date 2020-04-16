@@ -5,7 +5,7 @@ Created on : 2020/4/9 12:34
 
 @Author : jz liu
 '''
-#现在的下载方法在登陆时只有几次可以登陆下载到数据，还不能投入实际使用！！！
+
 # ================= example ======================================================
 '''
 from LST_download import download
@@ -18,22 +18,14 @@ location = ['70.0','30.0','90.0','20.0']
 product  = 'MOD11A1--6'
 
 tryOne = download(dir_out,username,password,time,location,product)
-url    = tryOne.build_url()
-
-tryOne.check_dir()
-
-driver  = tryOne.get_web(url)
-catalog = tryOne.build_url_dic(driver)
-
-tryOne.download(catalog)
+tryOne.main()
 '''
 
 
 import re
 import os
-import urllib.request
+import requests
 from selenium import webdriver
-from http.cookiejar import CookieJar
 from selenium.webdriver.chrome.options import Options
 
 
@@ -67,8 +59,8 @@ class download():
         print('正在下载{}'.format(product))
 
     def build_url(self):
-        #Create url
-        #return url of objective
+        # Create url
+        # return url of objective
 
         url = 'https://ladsweb.modaps.eosdis.nasa.gov/search/order/4/{}/{}/DB/{}'\
               .format(self.product,self.time,self.location)
@@ -76,8 +68,8 @@ class download():
         return url
 
     def get_web(self,url):
-        #Create a web driver of chrome which after loading
-        #note: please close driver after useing
+        # Create a web driver of chrome which after loading
+        # note: please close driver after useing
 
         chrome_options = Options()
         chrome_options.add_argument('--headless')
@@ -97,7 +89,7 @@ class download():
         return driver
 
     def build_url_dic(self,driver):
-        #Create a dic of every objective
+        # Create a dic of every objective
         '''
         :param driver: webdriver
         :return: {h??v?? : [ [date1,url1] , [date2,url2],...,[date,url] ] }
@@ -197,91 +189,17 @@ class download():
 
         print('目录校正完成')
 
-    def passwordManager(self):
-        # Create a password manager to deal with the 401 reponse that is
-        # returned from Earthdata Login
-
-        password_manager = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-        password_manager.add_password(None, self.server,
-                                      self.username, self.password)
-
-        return password_manager
-
-    def opener(self):
-
-        password_manager = self.passwordManager()
-
-        # Create a cookie jar for storing cookies. This is used to store and
-        # return the session cookie given to use by the data server (otherwise
-        # it will just keep sending us back to Earthdata Login to authenticate).
-        # Ideally, we should use a file based cookie jar to preserve cookies
-        # between runs. This will make it much more efficient.
-        cookie_jar = CookieJar()
-
-        opener = urllib.request.build_opener(
-            urllib.request.HTTPBasicAuthHandler(password_manager),
-            urllib.request.HTTPCookieProcessor(cookie_jar))
-        urllib.request.install_opener(opener)
-
-
-    def dataBody(self, url):
-        # Create and submit the request and get the data body.
-        # There are a wide range of exceptions that can be thrown here,
-        # including HTTPError and URLError. These should be caught and handled.
-
-        request = urllib.request.Request(url)
-        response = urllib.request.urlopen(request, timeout=60)
-        body = response.read()
-
-        return body
-
-
-    def exportFile(self,block,filename, body):
-        # Save file to working directory
-
-        file_ = open(r"{}/{}/{}/{}.hdf".format(self.dir_out,block,self.satellite,filename), 'wb')
-        file_.write(body)
-        file_.close()
-
-
-    def breakin(self, url,block,filename):
-        # Rob one file
-
-        self.opener()  # Install all the handlers.
-        body = self.dataBody(url)
-        self.exportFile(block,filename, body)
-
     def download(self,dic):
+        # download all file
+        session = SessionWithHeaderRedirection(self.username,self.password)
 
         for i in dic:
             for k in dic[i]:
                 if os.path.isfile(r"{}/{}/{}/{}.hdf".format(self.dir_out,i,self.satellite,k[0])):
                     print('{} {} {}已经存在'.format(self.product,i,k[0]))
                 else:
-                    self.breakin(k[1],i,k[0])
-                    print('{} {} {}下载完成'.format(self.product,i,k[0]))
-
-        print('下载完成')
-
-'''
-    def download_bate(self,dic):
-        #this method use to success,the reason why fail now are not clear
-        #hold this method for solving the problem of login with 'requests' in tht future
-        
-        post_url  = 'https://urs.earthdata.nasa.gov/login'
-        post_data = {'username': self.username, 'password': self.password}
-        headers   = {
-                     'User-Agent':'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.99 Safari/537.36'
-                    }
-        session   = requests.session()
-        session.post(post_url,data=post_data,headers=headers)
-
-        for i in dic:
-            for k in dic[i]:
-                data = session.get(k[1],headers=headers)
-                if os.path.isfile(r"{}/{}/{}/{}.hdf".format(self.dir_out,i,self.satellite,k[0])):
-                    print('{} {} {}已经存在'.format(self.product,i,k[0]))
-                else:
+                    data = session.get(k[1], stream=True)
+                    print(data.status_code, '\t', i)
                     with open(r"{}/{}/{}/{}.hdf".format(self.dir_out,i,self.satellite,k[0]),"wb") as code:
                         code.write(data.content)
                     print('{} {} {}下载完成'.format(self.product,i,k[0]))
@@ -289,8 +207,49 @@ class download():
 
         print('下载完成')
 
-'''
+    def main(self):
+        # start running
 
+        url = self.build_url()
+        self.check_dir()
+
+        driver  = self.get_web(url)
+        catalog = self.build_url_dic(driver)
+
+        self.download(catalog)
+
+
+
+class SessionWithHeaderRedirection(requests.Session):
+    AUTH_HOST = 'urs.earthdata.nasa.gov'
+
+    def __init__(self, username, password):
+
+        super().__init__()
+
+        self.auth = (username, password)
+
+    # Overrides from the library to keep headers when redirected to or from
+
+    # the NASA auth host.
+
+    def rebuild_auth(self, prepared_request, response):
+
+        headers = prepared_request.headers
+
+        url = prepared_request.url
+
+        if 'Authorization' in headers:
+
+            original_parsed = requests.utils.urlparse(response.request.url)
+
+            redirect_parsed = requests.utils.urlparse(url)
+
+            if (
+                    original_parsed.hostname != redirect_parsed.hostname) and redirect_parsed.hostname != self.AUTH_HOST and original_parsed.hostname != self.AUTH_HOST:
+                del headers['Authorization']
+
+        return
 
 
 
