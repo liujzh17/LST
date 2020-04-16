@@ -46,7 +46,7 @@ class download():
             self.satellite = 'aqua'
         else:
             print('这个程序是用来下载mod11和myd11两个数据集，理论上也可以下载其他数据集，'
-                  '但是输出地址可能会重复导致数据覆写的情况，如果仍要继续，请删除源代码中的第57行')
+                  '但是输出地址可能会重复导致数据覆写的情况，如果仍要继续，请删除源代码中的第50行')
             raise
         self.server   = "https://urs.earthdata.nasa.gov"
         self.dir_out  = dir_out
