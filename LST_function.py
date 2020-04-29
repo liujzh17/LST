@@ -5,7 +5,7 @@ Created on : 2020/2/19 13:05
 
 @Author : jz liu
 """
-
+import sys
 import numpy as np
 import pandas as pd
 import datetime
@@ -247,8 +247,8 @@ class process:
         prosrs, geosrs = self.getSRSPair()
         prosrs_WGS = osr.SpatialReference()
         prosrs_WGS.ImportFromEPSG(4326)
-        ct = osr.CoordinateTransformation( prosrs_WGS, prosrs)
-        X_sin , Y_sin = ct.TransformPoint(x,y)[:2]
+        ct = osr.CoordinateTransformation(prosrs_WGS,prosrs)
+        X_sin ,Y_sin = ct.TransformPoint(x,y)[:2]
         X,Y = self.XY2Line(X_sin,Y_sin,False,xuplife,yuplife)
 
         return Y,X
@@ -438,7 +438,6 @@ class interpolation:
 
         trainPoint = self.getTrainingPoint(data)
         a,b = self.linear(trainPoint)
-        print(a,b)
 
         ELE = np.array(trainPoint[1])
         BAND31 = np.array(trainPoint[2])
@@ -548,6 +547,25 @@ class data_show:
         Flag[ORI_data != self.filv ] = 1
 
         return Flag
+
+class progress_bar:
+    # 进度条
+    def __init__(self,total,title=None):
+        # total: 总工作量
+        # title：这次进度条的名称
+        self.total = total
+        self.title = title
+
+
+    def show_now(self,now):
+        percentage = float(now)*100/float(self.total)
+        number = percentage//2
+
+        print('\r{} ['.format(self.title),int(number)*'\033[0;31m>',(50 - int(number))*'\033[0;30m>','\033[0;30m]','\033[0;30m{:.2f}%'.format(percentage),end='',flush=True)
+
+
+
+
 
 
 

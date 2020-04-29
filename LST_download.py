@@ -25,6 +25,10 @@ product  = 'MOD11A1--6'
 tryOne = download1(dir_out,username,password,time,location,product)
 tryOne.main()
 '''
+# ============ TIP ================================================================
+#   1)if there are more than 2000 files,download1 won't do it.
+#     you can divide date into several parts or use download2
+#   2)use download2 when files are too many
 # ============ HOW TO USE download2 ===============================================
 '''
     1)Get url files you need from Earthdata by search "MOD11A1" or "MYD11A1".
@@ -50,6 +54,7 @@ import requests
 import platform
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from LST_function import progress_bar
 
 
 class download1():
@@ -70,7 +75,7 @@ class download1():
             self.filename = 'MODIS_MYD11A1_V006'
         else:
             print('这个程序是用来下载mod11和myd11两个数据集，理论上也可以下载其他数据集，'
-                  '但是输出地址可能会重复导致数据覆写的情况，如果仍要继续，请删除源代码中的第74行')
+                  '但是输出地址可能会重复导致数据覆写的情况，如果仍要继续，请删除源代码中的第79行')
             raise
         self.dir_out  = dir_out
         self.username = username
@@ -94,8 +99,14 @@ class download1():
         # check what OS you are using
 
         sys = platform.system()
+        if sys == 'Windows':
+            chrome = 'webdriver\\chromedriver.exe'
+        elif sys == 'Linux':
+            chrome = 'webdriver\\chromedriver_linux'
+        elif sys == 'Mac':
+            chrome = 'webdriver\\chromedriver_mac'
 
-        return sys
+        return chrome
 
     def get_web(self,url):
         # Create a web driver of chrome which after loading
@@ -104,17 +115,11 @@ class download1():
         chrome_options = Options()
         chrome_options.add_argument('--headless')
 
-        sys = self.check_OS()
+        chrome = self.check_OS()
 
-        if sys == 'Windows':
-            driver = webdriver.Chrome(options=chrome_options,
-                                      executable_path='webdriver\\chromedriver.exe')
-        elif sys == 'Linux':
-            driver = webdriver.Chrome(options=chrome_options,
-                                      executable_path='webdriver\\chromedriver_linux')
-        elif sys == 'Mac':
-            driver = webdriver.Chrome(options=chrome_options,
-                                      executable_path='webdriver\\chromedriver_mac')
+        driver = webdriver.Chrome(options=chrome_options,
+                                  executable_path=chrome)
+
         driver.get(url)
 
         while True:
@@ -133,8 +138,17 @@ class download1():
         :param driver: webdriver
         :return: {h??v?? : [ [date1,url1] , [date2,url2],...,[date,url] ] }
         '''
+        while True:
+            try:
+                nx = driver.find_element_by_xpath('//*[@id="tab4FilesTable_next"]').get_attribute('data-dt-idx')
+                last = str(int(nx) - 1)
+                last = driver.find_element_by_xpath('//*[@id="tab4FilesTable_paginate"]/span/a[@data-dt-idx="{}"]'.format(last)).get_attribute('textContent')
+                break
+            except:
+                pass
+        progress = progress_bar(int(last),'搜索url')
 
-        k = 1
+        k = 0
         catalog = {}
 
         while True:
@@ -142,106 +156,91 @@ class download1():
             i = 0
             k += 1
             while True:
-                i += 1
-
                 try:
-                    test = '//*[@id="tab4FilesTable"]/tbody/tr[{}]'.format(i)
-                    driver.find_element_by_xpath(test)
-                except:
+                    button = driver.find_element_by_xpath('//*[@id="tab4FilesTable_paginate"]/span/a[@class="paginate_button current"]').get_attribute('data-dt-idx')
+                    go = str(int(button) + 1)
                     break
+                except:
+                    pass
+            test_page = int(driver.find_element_by_xpath('//*[@id="tab4FilesTable_paginate"]/span/a[@data-dt-idx="{}"]'.format(button)).get_attribute("textContent"))
 
-                xp_id = '{}/td[1]'.format(test)
-                xp_date = '{}/td[3]/div'.format(test)
-                xp_url = '{}/td[4]/div/a'.format(test)
-
+            if test_page == k:
                 while True:
+                    i += 1
+
                     try:
-                        ID = driver.find_element_by_xpath(xp_id).get_attribute('textContent')
-                        ID = re.search(r'h(\d*)v(\d*)', ID).group()
-                        date = driver.find_element_by_xpath(xp_date).get_attribute('textContent')
-                        date = re.search(r'(\d*)-(\d*)-(\d*)', date).group()
-                        data_url = driver.find_element_by_xpath(xp_url).get_attribute('href')
+                        test = '//*[@id="tab4FilesTable"]/tbody/tr[{}]'.format(i)
+                        driver.find_element_by_xpath(test)
+                    except:
                         break
 
-                    except:
-                        pass
+                    xp_id   = '{}/td[1]'.format(test)
+                    xp_date = '{}/td[3]/div'.format(test)
+                    xp_url  = '{}/td[4]/div/a'.format(test)
 
-                try:
-                    x = catalog[ID]
-                    catalog[ID].append([date, data_url])
-                except:
-                    catalog[ID] = []
-                    catalog[ID].append([date, data_url])
+                    while True:
+                        try:
+                            ID = driver.find_element_by_xpath(xp_id).get_attribute('textContent')
+                            ID = re.search(r'h(\d*)v(\d*)', ID).group()
+                            date = driver.find_element_by_xpath(xp_date).get_attribute('textContent')
+                            date = re.search(r'(\d*)-(\d*)-(\d*)', date).group()
+                            data_url = driver.find_element_by_xpath(xp_url).get_attribute('href')
+                            break
+
+                        except:
+                            pass
+
+                    try:
+                        x = catalog[ID]
+                        catalog[ID].append([date, data_url])
+                    except:
+                        catalog[ID] = []
+                        catalog[ID].append([date, data_url])
+                progress.show_now(k)
+            else:
+                k -= 1
 
             try:
-                driver.find_element_by_xpath('//*[@id="tab4FilesTable_paginate"]/span/a[{}]'.format(k)).click()
+                if driver.find_element_by_xpath('//*[@id="tab4FilesTable_paginate"]/span/a[@data-dt-idx="{}"]'.format(go)).get_attribute('class') == "paginate_button ":
 
+                    driver.find_element_by_xpath('//*[@id="tab4FilesTable_paginate"]/span/a[@data-dt-idx="{}"]'.format(go)).click()
+                else:
+                    break
             except:
                 break
 
-        driver.close()
+        driver.quit()
 
         for name in catalog:
             break
+        print('')
         print('block：{}   day：{}'.format(len(catalog),len(catalog[name])))
 
         return catalog
 
-    def check_dir(self):
-        '''
-        Create Floder like this if it don't
-
-        data/h00v00/aqua/????-??-??.hdf
-                         .
-                         .
-                    terra/????-??-??.hdf
-                         .
-                         .
-             .
-             .
-             .
-             h01v00/aqua/????-??-??.hdf
-                         .
-                         .
-                    terra/????-??-??.hdf
-                         .
-                         .
-             .
-             .
-             .
-             h35v17/aqua/????-??-??.hdf
-                         .
-                         .
-                    terra/????-??-??.hdf
-                         .
-                         .
-
-        '''
-
-        for h in range(36):
-            for v in range(18):
-                for i in ('auqa','terra'):
-                    try:
-                        os.makedirs(r'data/h{:0>2d}v{:0>2d}/{}'.format(h,v,i))
-                    except:
-                        pass
-
-        print('目录校正完成')
-
     def download(self,dic):
         # download all file
+        for name in dic:
+            break
+        total = int(len(dic))*int(len(dic[name]))
+
         session = SessionWithHeaderRedirection(self.username,self.password)
 
+        now = 0
         for i in dic:
             for k in dic[i]:
+                now += 1
                 if os.path.isfile(r"{}/{}_{}_{}.hdf".format(self.dir_out,self.filename,i,k[0])):
                     print('{} {} {}已经存在'.format(self.product,i,k[0]))
                 else:
-                    data = session.get(k[1], stream=True)
-                    print(data.status_code, '\t', i)
+                    while True:
+                        data = session.get(k[1], stream=True,timeout = 60)
+                        print(data.status_code, '\t', i)
+                        if data.status_code == 200:
+                            break
                     with open(r"{}/{}_{}_{}.hdf".format(self.dir_out,self.filename,i,k[0]),"wb") as code:
                         code.write(data.content)
-                    print('{} {} {}下载完成'.format(self.product,i,k[0]))
+                    print('{} {} {}下载完成 已经完成{}/{}'.format(self.product,i,k[0],now,total))
                     code.close()
 
         print('下载完成')
@@ -291,18 +290,27 @@ class download2():
 
     def download(self,dic):
         # download all file
+        for name in dic:
+            break
+        total = int(len(dic))*int(len(dic[name]))
+
         session = SessionWithHeaderRedirection(self.username, self.password)
 
+        now = 0
         for i in dic:
             for k in dic[i]:
+                now += 1
                 if os.path.isfile(r"{}/{}_{}.hdf".format(self.dir_out, i, k[0])):
                     print('{} {} 已经存在'.format(i, k[0]))
                 else:
-                    data = session.get(k[1], stream=True)
-                    print(data.status_code, '\t', i)
+                    while True:
+                        data = session.get(k[1], stream=True)
+                        print(data.status_code, '\t', i)
+                        if data.status_code == 200:
+                            break
                     with open(r"{}/{}_{}.hdf".format(self.dir_out, i, k[0]), "wb") as code:
                         code.write(data.content)
-                    print('{} {} 下载完成'.format(i, k[0]))
+                    print('{} {} 下载完成 已完成{}/{}'.format(i, k[0],now,total))
                     code.close()
 
         print('下载完成')
