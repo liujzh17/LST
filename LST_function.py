@@ -43,7 +43,7 @@ class process:
         d = datetime.datetime.strptime(filename, '%Y-%m-%d')
         for i in range(-3,4):
             delta = datetime.timedelta(days=i)
-            list_sort.append('{}.hdf'.format(str(d + delta)[:10]))
+            list_sort.append(str(d + delta)[:10])
 
         return list_sort
 
@@ -153,6 +153,15 @@ class process:
         Y_min = int(Yline)
 
         return X_min,Y_min
+
+    def getGT(self):
+        #得到仿射信息
+
+        DEM_name = 'data\\GMTED2010'
+        DEM_file = gdal.Open(DEM_name)
+        GT = DEM_file.GetGeoTransform()
+
+        return GT
 
     def getDemData(self,x,y):
         '''
@@ -265,7 +274,7 @@ class process:
         return site
 
 class interpolation:
-#  some functions for temporal or spacial interpolation
+# some functions for temporal or spacial interpolation
     def __init__(self,filv=-125):
         self.filv = filv
 
@@ -547,6 +556,49 @@ class data_show:
         Flag[ORI_data != self.filv ] = 1
 
         return Flag
+
+    def build_NewTif(self,data,filename,GeoTransform):
+        '''
+        创建一个新tif文件，用来保存无缝隙的LST数据
+
+        :param data: 文件的数据
+        :param filename: 文件的地址
+        :param GeoTransform: 仿射信息
+
+        '''
+
+        driver = gdal.GetDriverByName('GTiff')
+
+        outDataset = driver.Create(filename, 1200, 1200, 1, gdal.GDT_Float64)
+
+        outBand = outDataset.GetRasterBand(1)
+
+        outDataset.SetGeoTransform(GeoTransform)
+        dataset = gdal.Open('data\\GMTED2010')
+        prosrs = osr.SpatialReference()
+        prosrs.ImportFromWkt(dataset.GetProjection())
+        outDataset.SetProjection(str(prosrs))
+
+        outBand.WriteArray(data, 0, 0)
+
+        return
+
+    def ReProjection(self,in_file,out_file,epsg):
+        '''
+        转换投影并输出新的文件
+        :param in_file: 输入文件的地址
+        :param out_file: 输出文件的地址
+        :param epsg: 输出文件投影的epsg码
+
+        '''
+
+        root_ds = gdal.Open(in_file)
+
+        gdal.Warp(out_file, root_ds, dstSRS='EPSG:{}'.format(epsg))
+
+        root_ds = None
+
+        return
 
 class progress_bar:
     # 进度条
