@@ -16,8 +16,8 @@ Created on : 2020/4/9 12:34
 from LST_download import download1
 
 dir_out  = 'data'
-username = '1572524747'
-password = 'Aa111111'
+username = 'XXXXX'
+password = 'XXXXX'
 time     = ['2019-01-01','2019-01-02']
 location = ['70.0','30.0','90.0','20.0']
 product  = 'MOD11A1--6'
@@ -41,8 +41,8 @@ from LST_download import download2
 
 urlfile  = 'data/urlfile.txt'
 dir_out  = 'data'
-username = '1572524747'
-password = 'Aa111111'
+username = 'XXXXX'
+password = 'XXXXX'
 
 tryOne = download2(urlfile,dir_out,username,password)
 tryOne.main()
